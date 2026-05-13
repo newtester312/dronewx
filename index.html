@@ -370,39 +370,28 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
-  // noaa-planetary-k-index.json zawiera obserwowane + prognozowane wpisy
-  // Filtrujemy tylko te w PRZESZLOSCI (czas < teraz)
+  // API zwraca tablice obiektow: [{time_tag, Kp, a_running, station_count}, ...]
+  // Bierzemy tylko wpisy z przeszlosci (time_tag UTC <= teraz)
   try{
     const r=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
     const data=await r.json();
-    if(!data||data.length<2)throw new Error('empty');
+    if(!data?.length)throw new Error('empty');
     const now=new Date();
-    // rows: [time_tag, kp, observed, noaa_scale]
-    // bierzemy tylko te gdzie czas <= teraz
-    const rows=data.slice(1).filter(r=>{
-      const t=new Date(r[0]+' UTC');
-      return t<=now && parseFloat(r[1])>0;
+    const past=data.filter(e=>{
+      const t=new Date(e.time_tag+' UTC');
+      return t<=now;
     });
-    if(!rows.length)throw new Error('no past rows');
-    const kpNow=parseFloat(rows[rows.length-1][1]);
-    const blocks=rows.slice(-8).map(r=>({time:new Date(r[0]+' UTC'),kp:parseFloat(r[1])}));
+    if(!past.length)throw new Error('no past data');
+    // ostatni wpis = aktualny Kp
+    const kpNow=parseFloat(past[past.length-1].Kp)||0;
+    // ostatnie 8 blokow 3h jako historia
+    const blocks=past.slice(-8).map(e=>({
+      time:new Date(e.time_tag+' UTC'),
+      kp:parseFloat(e.Kp)||0
+    }));
     return{kpNow,blocks};
   }catch(e){
-    // Fallback: noaa-planetary-k-index-forecast.json - bierzemy ostatni obserwowany
-    try{
-      const r2=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json');
-      const d2=await r2.json();
-      if(!d2||d2.length<2)return null;
-      const now=new Date();
-      const rows=d2.slice(1).filter(r=>{
-        const t=new Date(r[0]+' UTC');
-        return t<=now && parseFloat(r[1])>0;
-      });
-      if(!rows.length)return null;
-      const kpNow=parseFloat(rows[rows.length-1][1]);
-      const blocks=rows.slice(-8).map(r=>({time:new Date(r[0]+' UTC'),kp:parseFloat(r[1])}));
-      return{kpNow,blocks};
-    }catch{return null}
+    return null;
   }
 }
 
