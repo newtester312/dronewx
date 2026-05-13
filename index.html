@@ -370,41 +370,38 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
-  // Primary: official 3h Kp (observed only, no fill-zeros)
+  // noaa-planetary-k-index.json zawiera obserwowane + prognozowane wpisy
+  // Filtrujemy tylko te w PRZESZLOSCI (czas < teraz)
   try{
     const r=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
     const data=await r.json();
     if(!data||data.length<2)throw new Error('empty');
-    const rows=data.slice(1);
-    // find last non-zero observed value
-    let kpNow=0;
-    for(let i=rows.length-1;i>=0;i--){
-      const v=parseFloat(rows[i][1]);
-      if(v>0){kpNow=v;break}
-    }
-    const blocks=rows.slice(-8).map(r=>({time:new Date(r[0]),kp:parseFloat(r[1])||0}));
+    const now=new Date();
+    // rows: [time_tag, kp, observed, noaa_scale]
+    // bierzemy tylko te gdzie czas <= teraz
+    const rows=data.slice(1).filter(r=>{
+      const t=new Date(r[0]+' UTC');
+      return t<=now && parseFloat(r[1])>0;
+    });
+    if(!rows.length)throw new Error('no past rows');
+    const kpNow=parseFloat(rows[rows.length-1][1]);
+    const blocks=rows.slice(-8).map(r=>({time:new Date(r[0]+' UTC'),kp:parseFloat(r[1])}));
     return{kpNow,blocks};
-  }catch{
-    // Fallback: 7-day Kp text file parsed as JSON alternative
+  }catch(e){
+    // Fallback: noaa-planetary-k-index-forecast.json - bierzemy ostatni obserwowany
     try{
-      const r2=await fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json');
+      const r2=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json');
       const d2=await r2.json();
-      if(!d2?.length)return null;
-      // skip trailing zeros (fill values) - find last real value
-      let kpNow=0;
-      for(let i=d2.length-1;i>=0;i--){
-        const v=parseFloat(d2[i].kp_index);
-        if(!isNaN(v)&&v>0){kpNow=v;break}
-      }
-      // build 3h blocks, skip zero-only slices
-      const blocks=[];
-      for(let i=Math.max(0,d2.length-1440);i<d2.length;i+=180){
-        const sl=d2.slice(i,i+180).filter(e=>parseFloat(e.kp_index)>0);
-        if(sl.length>90){
-          blocks.push({time:new Date(d2[i].time_tag),kp:sl.reduce((s,e)=>s+parseFloat(e.kp_index),0)/sl.length});
-        }
-      }
-      return{kpNow,blocks:blocks.slice(-8)};
+      if(!d2||d2.length<2)return null;
+      const now=new Date();
+      const rows=d2.slice(1).filter(r=>{
+        const t=new Date(r[0]+' UTC');
+        return t<=now && parseFloat(r[1])>0;
+      });
+      if(!rows.length)return null;
+      const kpNow=parseFloat(rows[rows.length-1][1]);
+      const blocks=rows.slice(-8).map(r=>({time:new Date(r[0]+' UTC'),kp:parseFloat(r[1])}));
+      return{kpNow,blocks};
     }catch{return null}
   }
 }
