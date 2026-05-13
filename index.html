@@ -370,24 +370,41 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
+  // Primary: official 3h Kp (observed only, no fill-zeros)
   try{
-    const r=await fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json');
+    const r=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
     const data=await r.json();
-    if(!data?.length)return null;
-    const kpNow=parseFloat(data[data.length-1].kp_index);
-    const blocks=[];
-    for(let i=Math.max(0,data.length-480);i<data.length;i+=180){
-      const sl=data.slice(i,i+180);
-      blocks.push({time:new Date(sl[0].time_tag),kp:sl.reduce((s,e)=>s+parseFloat(e.kp_index),0)/sl.length});
+    if(!data||data.length<2)throw new Error('empty');
+    const rows=data.slice(1);
+    // find last non-zero observed value
+    let kpNow=0;
+    for(let i=rows.length-1;i>=0;i--){
+      const v=parseFloat(rows[i][1]);
+      if(v>0){kpNow=v;break}
     }
-    return{kpNow,blocks:blocks.slice(-8)};
+    const blocks=rows.slice(-8).map(r=>({time:new Date(r[0]),kp:parseFloat(r[1])||0}));
+    return{kpNow,blocks};
   }catch{
+    // Fallback: 7-day Kp text file parsed as JSON alternative
     try{
-      const r2=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json');
+      const r2=await fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json');
       const d2=await r2.json();
-      if(!d2||d2.length<2)return null;
-      const rows=d2.slice(1);
-      return{kpNow:parseFloat(rows[rows.length-1][1]),blocks:rows.slice(-8).map(r=>({time:new Date(r[0]),kp:parseFloat(r[1])}))};
+      if(!d2?.length)return null;
+      // skip trailing zeros (fill values) - find last real value
+      let kpNow=0;
+      for(let i=d2.length-1;i>=0;i--){
+        const v=parseFloat(d2[i].kp_index);
+        if(!isNaN(v)&&v>0){kpNow=v;break}
+      }
+      // build 3h blocks, skip zero-only slices
+      const blocks=[];
+      for(let i=Math.max(0,d2.length-1440);i<d2.length;i+=180){
+        const sl=d2.slice(i,i+180).filter(e=>parseFloat(e.kp_index)>0);
+        if(sl.length>90){
+          blocks.push({time:new Date(d2[i].time_tag),kp:sl.reduce((s,e)=>s+parseFloat(e.kp_index),0)/sl.length});
+        }
+      }
+      return{kpNow,blocks:blocks.slice(-8)};
     }catch{return null}
   }
 }
