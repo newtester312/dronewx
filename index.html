@@ -370,36 +370,39 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
-  // NOAA nie ma CORS - uzywamy proxy
-  const NOAA_URL='https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json';
-  const PROXIES=[
-    'https://corsproxy.io/?url=',
-    'https://api.allorigins.win/raw?url=',
-  ];
-  let data=null;
-  for(const proxy of PROXIES){
-    try{
-      const r=await fetch(proxy+encodeURIComponent(NOAA_URL));
-      const text=await r.text();
-      data=JSON.parse(text);
-      if(data?.length)break;
-    }catch{}
-  }
-  if(!data?.length)return null;
+  // GFZ Potsdam - oficjalne zrodlo Kp, ma naglowek CORS: Access-Control-Allow-Origin: *
   try{
     const now=new Date();
-    const past=data.filter(e=>{
-      const t=new Date(e.time_tag+' UTC');
-      return t<=now;
-    });
-    if(!past.length)return null;
-    const kpNow=parseFloat(past[past.length-1].Kp)||0;
-    const blocks=past.slice(-8).map(e=>({
-      time:new Date(e.time_tag+' UTC'),
-      kp:parseFloat(e.Kp)||0
-    }));
+    const from=new Date(now-2*24*3600*1000); // ostatnie 2 dni
+    const fmt=d=>d.toISOString().replace('.000Z','Z');
+    const url=;
+    const r=await fetch(url);
+    const data=await r.json();
+    // format: {datetime:[...], Kp:[...], status:[...]}
+    if(!data?.Kp?.length)throw new Error('no data');
+    const times=data.datetime;
+    const kps=data.Kp;
+    // ostatni niezerowy wynik
+    let kpNow=0;
+    for(let i=kps.length-1;i>=0;i--){
+      const v=parseFloat(kps[i]);
+      if(!isNaN(v)&&v>=0){kpNow=v;break}
+    }
+    // ostatnie 8 blokow 3h
+    const blocks=[];
+    for(let i=Math.max(0,kps.length-8);i<kps.length;i++){
+      blocks.push({time:new Date(times[i]),kp:parseFloat(kps[i])||0});
+    }
     return{kpNow,blocks};
-  }catch{return null}
+  }catch(e){
+    // fallback: auroras.live - ma CORS, zwraca aktualny Kp
+    try{
+      const r2=await fetch('https://auroraslive.io/api/v1/current');
+      const d2=await r2.json();
+      const kpNow=parseFloat(d2.kpindex)||parseFloat(d2.kp)||0;
+      return{kpNow,blocks:[{time:new Date(),kp:kpNow}]};
+    }catch{return null}
+  }
 }
 
 // ── GPS / Search ──────────────────────────────────────────────────
