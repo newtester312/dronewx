@@ -370,29 +370,39 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
-  // !! UZUPELNIJ URL swojego Cloudflare Workera ponizej !!
-  // Instrukcja: patrz plik kp-worker.js w repo
   const WORKER_URL = 'https://kp-proxy.alexxkammer.workers.dev';
-
   try{
     const r = await fetch(WORKER_URL);
     if(!r.ok) throw new Error('worker error');
     const data = await r.json();
-    if(!data?.length) throw new Error('no data');
-
-    // format NOAA: [{time_tag, Kp, a_running, station_count}, ...]
-    // time_tag format: "2026-05-14T03:00:00" - dodajemy Z zeby traktowac jako UTC
-    const now = new Date();
     const toUTC = s => new Date(s.replace(' ','T') + 'Z');
-    const past = data.filter(e => toUTC(e.time_tag) <= now);
-    // jesli brak "przeszlych" (problem ze strefa) - bierz wszystkie
-    const rows = past.length ? past : data;
-    const kpNow = parseFloat(rows[rows.length-1].Kp) || 0;
+    const now = new Date();
+
+    // Observed - dane historyczne
+    const obs = (data.observed || []);
+    const past = obs.filter(e => toUTC(e.time_tag) <= now);
+    const rows = past.length ? past : obs;
+    const kpNow = parseFloat(rows[rows.length-1]?.Kp) || 0;
     const blocks = rows.slice(-8).map(e => ({
       time: toUTC(e.time_tag),
       kp: parseFloat(e.Kp) || 0
     }));
-    return { kpNow, blocks };
+
+    // Forecast - dane prognozowane (format: [[time, kp, observed, scale], ...])
+    const frcRaw = (data.forecast || []).slice(1); // pomijamy naglowek
+    const future = frcRaw.filter(e => toUTC(e[0]) > now);
+    const kpForecast = future.slice(0, 8).map(e => ({
+      time: toUTC(e[0]),
+      kp: parseFloat(e[1]) || 0,
+      type: 'forecast'
+    }));
+
+    // Najwyzsza prognozowana wartosc na najblizsze 24h
+    const kpMax24h = kpForecast.length
+      ? Math.max(...kpForecast.map(e => e.kp))
+      : kpNow;
+
+    return { kpNow, blocks, kpForecast, kpMax24h };
   } catch(e) {
     return null;
   }
@@ -507,16 +517,34 @@ function render(data,kpData){
     const kbdg=kp>=5?`<span class="metric-badge badge-bad">WPŁYW NA GPS</span>`:kp>=4?`<span class="metric-badge badge-warn">UWAGA GPS</span>`:`<span class="metric-badge badge-ok">GPS OK</span>`;
     const sc=['#00e87a','#00e87a','#00e87a','#7ec850','#ffd700','#ffaa00','#ff7700','#ff4444','#cc0000','#990000'];
     const segs=sc.map((c,i)=>`<div class="kp-seg ${i<=Math.floor(kp)?'active':''}" style="background:${c}"></div>`).join('');
+
+    // Historia obserwowana
     const fh=kpData.blocks.map(b=>{const fc=b.kp<4?'var(--green)':b.kp<6?'var(--yellow)':'var(--red)';return`<div class="kp-fblock"><div class="kp-ftime">${String(b.time.getHours()).padStart(2,'0')}:00</div><div class="kp-fval" style="color:${fc}">${b.kp.toFixed(1)}</div><div class="kp-fbar" style="background:${fc}"></div></div>`}).join('');
+
+    // Prognoza
+    const ff=(kpData.kpForecast||[]).map(b=>{const fc=b.kp<4?'var(--green)':b.kp<6?'var(--yellow)':'var(--red)';return`<div class="kp-fblock" style="opacity:.7"><div class="kp-ftime">${String(b.time.getHours()).padStart(2,'0')}:00</div><div class="kp-fval" style="color:${fc}">${b.kp.toFixed(1)}</div><div class="kp-fbar" style="background:${fc};opacity:.5"></div></div>`}).join('');
+
+    const max24=kpData.kpMax24h||kp;
+    const maxC=max24<4?'var(--green)':max24<6?'var(--yellow)':'var(--red)';
+
     kpHTML=`<div class="card kp">
       <div class="card-label">🧲 Indeks Kp — aktywność geomagnetyczna</div>
       <div class="kp-gauge-wrap">
-        <div class="kp-circle" style="border-color:${kb}"><div class="kp-num" style="color:${kc}">${kp.toFixed(1)}</div><div class="kp-label-sm">Kp INDEX</div></div>
-        <div><div class="kp-status-text" style="color:${kc}">${kt}</div><div class="kp-desc">${kd}</div><div style="margin-top:6px">${kbdg}</div></div>
+        <div class="kp-circle" style="border-color:${kb}"><div class="kp-num" style="color:${kc}">${kp.toFixed(1)}</div><div class="kp-label-sm">Kp TERAZ</div></div>
+        <div style="flex:1">
+          <div class="kp-status-text" style="color:${kc}">${kt}</div>
+          <div class="kp-desc">${kd}</div>
+          <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+            ${kbdg}
+            <span style="font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--muted)">max 24h: <span style="color:${maxC}">${max24.toFixed(1)}</span></span>
+          </div>
+        </div>
       </div>
       <div class="kp-scale">${segs}</div>
       <div style="display:flex;justify-content:space-between;font-family:'Share Tech Mono',monospace;font-size:.51rem;color:var(--muted);margin-top:3px"><span>0—spokój</span><span>5—G1</span><span>9—ekstrem</span></div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--muted);margin-top:8px;margin-bottom:3px">▶ OBSERWOWANY</div>
       <div class="kp-forecast">${fh}</div>
+      ${ff?`<div style="font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--muted);margin-top:8px;margin-bottom:3px">▶ PROGNOZA</div><div class="kp-forecast">${ff}</div>`:''}
       <div style="font-family:'Share Tech Mono',monospace;font-size:.54rem;color:var(--muted);margin-top:6px">Źródło: NOAA Space Weather</div>
     </div>`;
   }
