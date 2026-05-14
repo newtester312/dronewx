@@ -370,38 +370,29 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
-  // GFZ Potsdam - oficjalne zrodlo Kp, ma naglowek CORS: Access-Control-Allow-Origin: *
+  // !! UZUPELNIJ URL swojego Cloudflare Workera ponizej !!
+  // Instrukcja: patrz plik kp-worker.js w repo
+  const WORKER_URL = 'https://TWOJ-WORKER.TWOJA-SUBDOMENA.workers.dev';
+
   try{
-    const now=new Date();
-    const from=new Date(now-2*24*3600*1000); // ostatnie 2 dni
-    const fmt=d=>d.toISOString().replace('.000Z','Z');
-    const url=`https://kp.gfz-potsdam.de/app/json/?start=${fmt(from)}&end=${fmt(now)}&index=Kp`;
-    const r=await fetch(url);
-    const data=await r.json();
-    // format: {datetime:[...], Kp:[...], status:[...]}
-    if(!data?.Kp?.length)throw new Error('no data');
-    const times=data.datetime;
-    const kps=data.Kp;
-    // ostatni niezerowy wynik
-    let kpNow=0;
-    for(let i=kps.length-1;i>=0;i--){
-      const v=parseFloat(kps[i]);
-      if(!isNaN(v)&&v>=0){kpNow=v;break}
-    }
-    // ostatnie 8 blokow 3h
-    const blocks=[];
-    for(let i=Math.max(0,kps.length-8);i<kps.length;i++){
-      blocks.push({time:new Date(times[i]),kp:parseFloat(kps[i])||0});
-    }
-    return{kpNow,blocks};
-  }catch(e){
-    // fallback: auroras.live - ma CORS, zwraca aktualny Kp
-    try{
-      const r2=await fetch('https://auroraslive.io/api/v1/current');
-      const d2=await r2.json();
-      const kpNow=parseFloat(d2.kpindex)||parseFloat(d2.kp)||0;
-      return{kpNow,blocks:[{time:new Date(),kp:kpNow}]};
-    }catch{return null}
+    const r = await fetch(WORKER_URL);
+    if(!r.ok) throw new Error('worker error');
+    const data = await r.json();
+    if(!data?.length) throw new Error('no data');
+
+    // format NOAA: [{time_tag, Kp, a_running, station_count}, ...]
+    const now = new Date();
+    const past = data.filter(e => new Date(e.time_tag + ' UTC') <= now);
+    if(!past.length) throw new Error('no past data');
+
+    const kpNow = parseFloat(past[past.length-1].Kp) || 0;
+    const blocks = past.slice(-8).map(e => ({
+      time: new Date(e.time_tag + ' UTC'),
+      kp: parseFloat(e.Kp) || 0
+    }));
+    return { kpNow, blocks };
+  } catch(e) {
+    return null;
   }
 }
 
