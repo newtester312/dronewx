@@ -381,13 +381,15 @@ async function fetchKp(){
     if(!data?.length) throw new Error('no data');
 
     // format NOAA: [{time_tag, Kp, a_running, station_count}, ...]
+    // time_tag format: "2026-05-14T03:00:00" - dodajemy Z zeby traktowac jako UTC
     const now = new Date();
-    const past = data.filter(e => new Date(e.time_tag + ' UTC') <= now);
-    if(!past.length) throw new Error('no past data');
-
-    const kpNow = parseFloat(past[past.length-1].Kp) || 0;
-    const blocks = past.slice(-8).map(e => ({
-      time: new Date(e.time_tag + ' UTC'),
+    const toUTC = s => new Date(s.replace(' ','T') + 'Z');
+    const past = data.filter(e => toUTC(e.time_tag) <= now);
+    // jesli brak "przeszlych" (problem ze strefa) - bierz wszystkie
+    const rows = past.length ? past : data;
+    const kpNow = parseFloat(rows[rows.length-1].Kp) || 0;
+    const blocks = rows.slice(-8).map(e => ({
+      time: toUTC(e.time_tag),
       kp: parseFloat(e.Kp) || 0
     }));
     return { kpNow, blocks };
