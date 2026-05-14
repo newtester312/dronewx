@@ -372,7 +372,7 @@ async function fetchWeather(lat,lon){
 async function fetchKp(){
   // !! UZUPELNIJ URL swojego Cloudflare Workera ponizej !!
   // Instrukcja: patrz plik kp-worker.js w repo
-  const WORKER_URL = 'https://TWOJ-WORKER.TWOJA-SUBDOMENA.workers.dev';
+  const WORKER_URL = 'https://kp-proxy.alexxkammer.workers.dev';
 
   try{
     const r = await fetch(WORKER_URL);
