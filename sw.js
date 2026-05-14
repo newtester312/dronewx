@@ -1,4 +1,4 @@
-const CACHE = 'dronewx-v1';
+const CACHE = 'dronewx-v3';
 const OFFLINE_ASSETS = [
   './index.html',
   './manifest.json'
