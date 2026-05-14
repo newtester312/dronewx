@@ -390,7 +390,7 @@ async function fetchKp(){
 
     // Forecast - dane prognozowane (format: [[time, kp, observed, scale], ...])
     const frcRaw = (data.forecast || []).slice(1); // pomijamy naglowek
-    const future = frcRaw.filter(e => toUTC(e[0]) > now);
+    const future = frcRaw.filter(e => e && e[0] && typeof e[0]==='string' && toUTC(e[0]) > now);
     const kpForecast = future.slice(0, 8).map(e => ({
       time: toUTC(e[0]),
       kp: parseFloat(e[1]) || 0,
