@@ -370,29 +370,36 @@ async function fetchWeather(lat,lon){
 }
 
 async function fetchKp(){
-  // API zwraca tablice obiektow: [{time_tag, Kp, a_running, station_count}, ...]
-  // Bierzemy tylko wpisy z przeszlosci (time_tag UTC <= teraz)
+  // NOAA nie ma CORS - uzywamy proxy
+  const NOAA_URL='https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json';
+  const PROXIES=[
+    'https://corsproxy.io/?url=',
+    'https://api.allorigins.win/raw?url=',
+  ];
+  let data=null;
+  for(const proxy of PROXIES){
+    try{
+      const r=await fetch(proxy+encodeURIComponent(NOAA_URL));
+      const text=await r.text();
+      data=JSON.parse(text);
+      if(data?.length)break;
+    }catch{}
+  }
+  if(!data?.length)return null;
   try{
-    const r=await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
-    const data=await r.json();
-    if(!data?.length)throw new Error('empty');
     const now=new Date();
     const past=data.filter(e=>{
       const t=new Date(e.time_tag+' UTC');
       return t<=now;
     });
-    if(!past.length)throw new Error('no past data');
-    // ostatni wpis = aktualny Kp
+    if(!past.length)return null;
     const kpNow=parseFloat(past[past.length-1].Kp)||0;
-    // ostatnie 8 blokow 3h jako historia
     const blocks=past.slice(-8).map(e=>({
       time:new Date(e.time_tag+' UTC'),
       kp:parseFloat(e.Kp)||0
     }));
     return{kpNow,blocks};
-  }catch(e){
-    return null;
-  }
+  }catch{return null}
 }
 
 // ── GPS / Search ──────────────────────────────────────────────────
