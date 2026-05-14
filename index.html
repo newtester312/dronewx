@@ -375,7 +375,7 @@ async function fetchKp(){
     const r = await fetch(WORKER_URL);
     if(!r.ok) throw new Error('worker error');
     const data = await r.json();
-    const toUTC = s => new Date(s.replace(' ','T') + 'Z');
+    const toUTC = s => new Date((s||'').replace(' ','T').replace(/Z?$/,'Z'));
     const now = new Date();
 
     // Observed - dane historyczne
