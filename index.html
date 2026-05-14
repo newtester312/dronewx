@@ -375,7 +375,7 @@ async function fetchKp(){
     const now=new Date();
     const from=new Date(now-2*24*3600*1000); // ostatnie 2 dni
     const fmt=d=>d.toISOString().replace('.000Z','Z');
-    const url=;
+    const url=`https://kp.gfz-potsdam.de/app/json/?start=${fmt(from)}&end=${fmt(now)}&index=Kp`;
     const r=await fetch(url);
     const data=await r.json();
     // format: {datetime:[...], Kp:[...], status:[...]}
